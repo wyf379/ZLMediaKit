@@ -32,11 +32,13 @@ jobs:
             libavcodec-dev libavutil-dev libswscale-dev \
             libusrsctp-dev
 
-      - name: Build and install libsrtp
+      - name: Build and install libsrtp (patched for GCC 10+)
         run: |
           cd 3rdpart
           git clone --depth 1 --branch v2.3.0 https://github.com/cisco/libsrtp.git
           cd libsrtp
+          curl -L -o gcc10.patch https://git.cdn.openwrt.org/feed/telephony/patches/libs/libsrtp/010-gcc10.patch
+          patch -p1 < gcc10.patch
           ./configure --enable-openssl
           make -j$(nproc)
           sudo make install
@@ -91,7 +93,6 @@ jobs:
         run: |
           vcpkg install openssl:x64-windows
           vcpkg install libsrtp:x64-windows
-          vcpkg install libsdl2:x64-windows
 
       - name: Configure CMake
         shell: pwsh
@@ -125,7 +126,7 @@ jobs:
           if (Test-Path release/windows/Release/www) {
             Copy-Item -Recurse release/windows/Release/www artifact/windows/
           }
-          # 复制 OpenSSL 等运行时 DLL
+          # 复制 OpenSSL / libsrtp 等运行时 DLL
           $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin"
           if (Test-Path $vcpkgBin) {
             Get-ChildItem "$vcpkgBin/*.dll" | Copy-Item -Destination artifact/windows/
@@ -137,3 +138,42 @@ jobs:
           name: ZLMediaKit-windows
           path: artifact/windows/
           retention-days: 7
+
+  # ========================
+  # 可选：标签推送时自动发布 Release
+  # ========================
+  release:
+    needs: [ build-linux, build-windows ]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ZLMediaKit-linux
+          path: release-assets/linux
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ZLMediaKit-windows
+          path: release-assets/windows
+
+      - name: Package
+        run: |
+          cd release-assets
+          zip -r ../ZLMediaKit-linux.zip linux
+          zip -r ../ZLMediaKit-windows.zip windows
+          cd ..
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ZLMediaKit-linux.zip
+            ZLMediaKit-windows.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
