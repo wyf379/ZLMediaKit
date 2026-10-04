@@ -32,13 +32,11 @@ jobs:
             libavcodec-dev libavutil-dev libswscale-dev \
             libusrsctp-dev
 
-      - name: Build and install libsrtp (patched for GCC 10+)
+      - name: Build and install libsrtp
         run: |
           cd 3rdpart
-          git clone --depth 1 --branch v2.3.0 https://github.com/cisco/libsrtp.git
+          git clone --depth 1 --branch v2.8.1 https://github.com/cisco/libsrtp.git
           cd libsrtp
-          curl -L -o gcc10.patch https://git.cdn.openwrt.org/feed/telephony/patches/libs/libsrtp/010-gcc10.patch
-          patch -p1 < gcc10.patch
           ./configure --enable-openssl
           make -j$(nproc)
           sudo make install
@@ -126,7 +124,6 @@ jobs:
           if (Test-Path release/windows/Release/www) {
             Copy-Item -Recurse release/windows/Release/www artifact/windows/
           }
-          # 复制 OpenSSL / libsrtp 等运行时 DLL
           $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin"
           if (Test-Path $vcpkgBin) {
             Get-ChildItem "$vcpkgBin/*.dll" | Copy-Item -Destination artifact/windows/
