@@ -28,9 +28,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             build-essential cmake pkg-config \
-            libssl-dev libsdl-dev \
+            libssl-dev libsdl2-dev \
             libavcodec-dev libavutil-dev libswscale-dev \
-            libresample-dev libusrsctp-dev
+            libusrsctp-dev
 
       - name: Build and install libsrtp
         run: |
