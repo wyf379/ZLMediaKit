@@ -1,0 +1,139 @@
+name: Build ZLMediaKit
+
+on:
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  # ========================
+  # Linux 编译
+  # ========================
+  build-linux:
+    name: Build on Linux
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake pkg-config \
+            libssl-dev libsdl-dev \
+            libavcodec-dev libavutil-dev libswscale-dev \
+            libresample-dev libusrsctp-dev
+
+      - name: Build and install libsrtp
+        run: |
+          cd 3rdpart
+          git clone --depth 1 --branch v2.3.0 https://github.com/cisco/libsrtp.git
+          cd libsrtp
+          ./configure --enable-openssl
+          make -j$(nproc)
+          sudo make install
+
+      - name: Configure CMake
+        run: |
+          mkdir -p linux_build
+          cd linux_build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_WEBRTC=true \
+            -DENABLE_FFMPEG=true
+
+      - name: Build
+        run: |
+          cd linux_build
+          make -j$(nproc)
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifact/linux
+          cp release/linux/Release/MediaServer artifact/linux/ 2>/dev/null || true
+          cp release/linux/Release/libmk_api.so artifact/linux/ 2>/dev/null || true
+          cp -r release/linux/Release/www artifact/linux/ 2>/dev/null || true
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZLMediaKit-linux
+          path: artifact/linux/
+          retention-days: 7
+
+  # ========================
+  # Windows 编译
+  # ========================
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install dependencies via vcpkg
+        shell: pwsh
+        run: |
+          vcpkg install openssl:x64-windows
+          vcpkg install libsrtp:x64-windows
+          vcpkg install libsdl2:x64-windows
+
+      - name: Configure CMake
+        shell: pwsh
+        run: |
+          mkdir windows_build
+          cd windows_build
+          cmake .. `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DENABLE_WEBRTC=true `
+            -DENABLE_FFMPEG=false
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cd windows_build
+          cmake --build . --config Release --parallel
+
+      - name: Prepare artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifact/windows | Out-Null
+          if (Test-Path release/windows/Release/MediaServer.exe) {
+            Copy-Item release/windows/Release/MediaServer.exe artifact/windows/
+          }
+          if (Test-Path release/windows/Release/mk_api.dll) {
+            Copy-Item release/windows/Release/mk_api.dll artifact/windows/
+          }
+          if (Test-Path release/windows/Release/www) {
+            Copy-Item -Recurse release/windows/Release/www artifact/windows/
+          }
+          # 复制 OpenSSL 等运行时 DLL
+          $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin"
+          if (Test-Path $vcpkgBin) {
+            Get-ChildItem "$vcpkgBin/*.dll" | Copy-Item -Destination artifact/windows/
+          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZLMediaKit-windows
+          path: artifact/windows/
+          retention-days: 7
